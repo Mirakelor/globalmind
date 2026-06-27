@@ -1,0 +1,73 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "globalmind"
+dynamic = ["version"]
+description = 'GMP (Global Mind Project) mental health data analysis toolkit'
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+keywords = [
+  "GMP", "Global-Mind-Project", "MHQ", "Mind-Health-Quotient",
+  "mental-health", "wellbeing", "DSM-5", "psychometrics",
+  "questionnaire", "survey-analysis", "public-health",
+  "polars", "data-science",
+]
+authors = [
+  { name = "Nianyu Su", email = "mirakelor@outlook.com" },
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Programming Language :: Python",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: Implementation :: CPython",
+]
+dependencies = [
+  "polars>=1.0.0"
+]
+
+[project.urls]
+Documentation = "https://github.com/Mirakelor/globalmind#readme"
+Issues = "https://github.com/Mirakelor/globalmind/issues"
+Source = "https://github.com/Mirakelor/globalmind"
+
+[tool.hatch.version]
+path = "src/globalmind/__about__.py"
+
+[tool.hatch.envs.types]
+extra-dependencies = [
+  "mypy>=1.0.0",
+]
+[tool.hatch.envs.types.scripts]
+check = "mypy --install-types --non-interactive {args:src/globalmind tests}"
+[tool.hatch.envs.test]
+dependencies = [
+    "pytest>=8.0.0",
+    "pytest-cov>=5.0.0",       
+]
+[tool.hatch.envs.test.scripts]
+test = "pytest -v {args:tests}"
+cov  = "pytest --cov=src/globalmind --cov-report=term-missing {args:tests}"
+
+[tool.coverage.run]
+source_pkgs = ["globalmind", "tests"]
+branch = true
+parallel = true
+omit = [
+  "src/globalmind/__about__.py",
+]
+
+[tool.coverage.paths]
+globalmind = ["src/globalmind", "*/globalmind/src/globalmind"]
+tests = ["tests", "*/globalmind/tests"]
+
+[tool.coverage.report]
+exclude_lines = [
+  "no cov",
+  "if __name__ == .__main__.:",
+  "if TYPE_CHECKING:",
+]
