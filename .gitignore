@@ -44,8 +44,7 @@ Thumbs.db
 .env
 .env.*
 
-# Data (large CSV / parquet — do not commit raw or processed data)
-*.csv
+# Data
 *.parquet
 *.processed.parquet
 
@@ -57,3 +56,6 @@ tests/
 
 # Logs
 *.log
+
+# Scripts
+scripts/

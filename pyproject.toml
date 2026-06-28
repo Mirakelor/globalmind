@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "globalmind"
 dynamic = ["version"]
-description = 'GMP (Global Mind Project) mental health data analysis toolkit'
+description = 'GMP (Global Mind Project) mental health data analysis toolkit — ingest, clean, post-stratify, and classify MHQ survey data with DSM‑5 mapping'
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
@@ -13,7 +13,7 @@ keywords = [
   "GMP", "Global-Mind-Project", "MHQ", "Mind-Health-Quotient",
   "mental-health", "wellbeing", "DSM-5", "psychometrics",
   "questionnaire", "survey-analysis", "public-health",
-  "polars", "data-science",
+  "polars", "data-science", "post-stratification", "raking",
 ]
 authors = [
   { name = "Nianyu Su", email = "mirakelor@outlook.com" },

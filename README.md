@@ -51,6 +51,28 @@ processing of the full dataset.
   categories: Depression, Anxiety, Bipolar, PTSD, OCD, Schizophrenia, Eating
   Disorder, Addiction, ADHD, ASD.
 
+### Population stratification weighting
+- **`post_stratification_weighting(df)`** — adds within‑country
+  post‑stratification weights (``_weight`` column in [0.05, 20]) via iterative
+  proportional fitting (raking).  Three margins are adjusted independently per
+  country:
+  - **year** — population share across 2020–2026
+  - **age × sex** — adult age‑sex pyramid (8 groups × Female/Male)
+  - **rural / urban** — urbanisation rate (binary split)
+
+  Population benchmarks are bundled with the package and derived from:
+  - **UN World Population Prospects 2024** — year- and age‑sex‑specific
+    population estimates for 83 countries (medium variant).
+  - **World Bank WDI** — ``SP.URB.TOTL.IN.ZS`` urban population (% of total)
+    for 2020–2024, carried forward for 2025–2026.
+
+  **Coverage notes:** 2020–2021 lack ``rural_urban`` (question introduced in
+  2022) — those rows are excluded from the urban‑rural margin.  Sex data
+  for all years is recovered by coalescing ``biological_sex`` (2022+) and
+  ``gender`` (2020–2021).  2025–2026 urban rates use 2024 values (latest
+  available).  Taiwan is not covered by the World Bank indicator (rural‑urban
+  margin skipped).
+
 ## Installation
 
 ```console
@@ -64,11 +86,13 @@ Requires Python ≥ 3.10 and `polars ≥ 1.0`.
 ```python
 from globalmind import (
     read_table, clean_data,
+    post_stratification_weighting,
     identify_symptoms, mapping_to_DSM5,
 )
 
 df = read_table("gmp_data.csv")
 df = clean_data(df)
+df = post_stratification_weighting(df)
 df = identify_symptoms(df)
 df = mapping_to_DSM5(df)
 df.collect()  # all operations are lazy

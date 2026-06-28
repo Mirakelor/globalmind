@@ -7,6 +7,7 @@
 from globalmind.data import read_table, clean_data
 from globalmind.schema import COLUMN_DESCRIPTIONS, describe_column
 from globalmind.symptom import identify_symptoms, mapping_to_DSM5
+from globalmind.stratification import post_stratification_weighting
 from globalmind.__about__ import __version__
 
 __all__ = [
@@ -16,5 +17,6 @@ __all__ = [
     "describe_column",
     "identify_symptoms",
     "mapping_to_DSM5",
+    "post_stratification_weighting",
     "__version__",
 ]
