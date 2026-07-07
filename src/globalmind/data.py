@@ -93,6 +93,11 @@ def read_table(path: str) -> pl.LazyFrame:
     else:
         raise NotImplementedError(f"Unsupported file format: {source.suffix}")
     
+def _count(df: pl.LazyFrame) -> int:
+    """Materialise and return the row count of a LazyFrame."""
+    return df.select(pl.len()).collect().item()
+
+
 def clean_data(df: pl.LazyFrame) -> pl.LazyFrame:
     """Apply GMP data quality filters.
 
@@ -101,23 +106,38 @@ def clean_data(df: pl.LazyFrame) -> pl.LazyFrame:
     - same option selected for all rating questions (std dev < 0.2)
     - responded 'No' to 'Did you find this assessment easy to understand?'
     - country has fewer than 1,000 responses
+
+    Prints a summary of how many records were excluded at each step.
     """
-    # Filter out records with time_to_complete < 7 minutes
+    total = _count(df)
+    print(f"Initial records: {total:,}")
+
+    # ── Step 1: time_to_complete < 7 minutes ──────────────────────────
     df = df.with_columns(
-        (pl.col("time_to_complete").str.split(":").list.get(0).cast(pl.Int64) * 60 + pl.col("time_to_complete").str.split(":").list.get(1).cast(pl.Int64))
+        (pl.col("time_to_complete").str.split(":").list.get(0).cast(pl.Int64) * 60
+         + pl.col("time_to_complete").str.split(":").list.get(1).cast(pl.Int64))
         .alias("time_to_complete_minutes")
     ).filter(pl.col("time_to_complete_minutes") >= 7).drop("time_to_complete_minutes")
+    post1 = _count(df)
+    print(f"  time_to_complete < 7 min  →  excluded: {total - post1:,},  remaining: {post1:,}")
 
-    # Filter out records with low variance in rating questions
+    # ── Step 2: low variance in rating questions (std dev < 0.2) ──────
     df = df.with_columns(
         pl.concat_list([pl.col(col) for col in _RATING_COLS]).list.std().alias("_ratings_std")
     ).filter(pl.col("_ratings_std") >= 0.2).drop("_ratings_std")
+    post2 = _count(df)
+    print(f"  ratings std dev < 0.2       →  excluded: {post1 - post2:,},  remaining: {post2:,}")
 
-    # Filter out records that responded 'No' to 'Did you find this assessment easy to understand?'
+    # ── Step 3: responded 'No' to understanding question ──────────────
     df = df.filter(pl.col("understanding") != "No")
+    post3 = _count(df)
+    print(f"  understanding == 'No'       →  excluded: {post2 - post3:,},  remaining: {post3:,}")
 
-    # Filter out countries with fewer than 1,000 responses
+    # ── Step 4: country with fewer than 1,000 responses ───────────────
     country_counts = df.group_by("country").len().filter(pl.col("len") >= 1000).select("country")
     df = df.join(country_counts, on="country", how="semi")
+    post4 = _count(df)
+    print(f"  country < 1,000 responses   →  excluded: {post3 - post4:,},  remaining: {post4:,}")
 
+    print(f"Total excluded: {total - post4:,}  →  Final records: {post4:,}")
     return df
