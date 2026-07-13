@@ -5,15 +5,15 @@ by probability sampling.  Certain demographic groups — younger, urban,
 male users in well-connected countries — tend to be over-represented
 relative to the general adult population.
 
-This module performs **iterative proportional fitting** (raking) to
-align the survey to known population benchmarks **within each country**.
-Three margins are adjusted simultaneously:
+This module provides two approaches:
 
-1. **year** — population share across survey years (2020–2026)
-2. **age_group × sex** — the country's adult age‑sex pyramid (18+)
-3. **rural_urban** — the country's urbanisation rate
+1. **Iterative Proportional Fitting (IPF)** — rakes on three margins
+   (year, age×sex, rural_urban) simultaneously via :func:`iterative_proportional_fitting`.
+2. **Simple post-stratification** — single-step weighting by year,
+   age_group, and sex via :func:`simple_stratification`.  Countries
+   or years without population benchmarks receive ``_weight = null``.
 
-Raking is performed on cell-aggregated counts (a few thousand rows)
+Both methods operate on cell-aggregated counts (a few thousand rows)
 and the resulting ``_weight`` column is joined back to the individual
 records.  All operations are Polars-lazy except the cell aggregation
 and the IPF iteration itself.
@@ -32,11 +32,11 @@ and the IPF iteration itself.
 
 Usage::
 
-    from globalmind import read_table, clean_data, post_stratification_weighting
+    from globalmind import read_table, clean_data, iterative_proportional_fitting
 
     df = read_table("gmp_data.csv")
     df = clean_data(df)
-    df = post_stratification_weighting(df)
+    df = iterative_proportional_fitting(df)
     # df now has a _weight column — pass to weighted aggregations
 """
 
@@ -208,17 +208,17 @@ def _harmonize_strata(df: pl.LazyFrame) -> pl.LazyFrame:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# Post-stratification weighting (within-country raking)
+# Iterative Proportional Fitting (within-country raking on three margins)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def post_stratification_weighting(
+def iterative_proportional_fitting(
     df: pl.LazyFrame,
     max_iter: int = 50,
     tolerance: float = 1e-4,
 ) -> pl.LazyFrame:
-    """Add a ``_weight`` column via within-country iterative raking (IPF).
+    """Add a ``_weight`` column via Iterative Proportional Fitting (IPF).
 
-    Raking is run **independently for each country** on three margins
+    IPF is run **independently for each country** on three margins
     whose population targets are stored in the package data files::
 
         _data/pop_age_sex.csv   → year × country pop,  age × sex pyramid
@@ -250,9 +250,9 @@ def post_stratification_weighting(
     1. Harmonise strata via :func:`_harmonize_strata`.
     2. Aggregate to cell-level counts (cheap — a few thousand rows).
     3. Iterate:
-       a. Rake margin 1 (country × year).
-       b. Rake margin 2 (country × year × age × sex).
-       c. Rake margin 3 (country × year × rural_urban).
+       a. Fit margin 1 (country × year).
+       b. Fit margin 2 (country × year × age × sex).
+       c. Fit margin 3 (country × year × rural_urban).
        d. Normalise weights within each country so they sum to *n*.
        e. Check convergence (max absolute weight change).
     4. Clip weights to [0.05, 20] and join back to individual rows.
@@ -480,5 +480,136 @@ def post_stratification_weighting(
         .otherwise(pl.col("_stratum_ru"))
         .alias("_stratum_ru"),
     )
+
+    return df
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Simple post-stratification (year × age_group × sex, single-step)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def simple_stratification(df: pl.LazyFrame) -> pl.LazyFrame:
+    """Add a ``_weight`` column via single-step post-stratification on
+    year × age_group × sex.
+
+    Unlike :func:`iterative_proportional_fitting`, this performs a
+    **one-shot** weighting without iteration and without the rural‑urban
+    margin.  For each country, weights are computed as:
+
+    .. math::
+
+        w_{\\text{cell}} = \\frac{P_{\\text{cell}} / P_{\\text{country}}}
+                                 {n_{\\text{cell}} / n_{\\text{country}}}
+
+    where *P* is the population benchmark and *n* the sample count.
+
+    **Countries or years not found in the population benchmarks receive
+    ``_weight = null``.**  Rows with ``_stratum_sex = null`` (e.g.
+    "Other", "Prefer not to say") also receive null because the
+    population benchmarks only cover Male and Female.
+
+    Parameters
+    ----------
+    df : pl.LazyFrame
+        GMP data **after** :func:`clean_data`.  Must contain the columns
+        ``country``, ``year``, ``age``, ``biological_sex``, ``gender``.
+
+    Returns
+    -------
+    pl.LazyFrame
+        The input frame with ``country`` normalised and the columns
+        ``_stratum_sex``, ``_stratum_age``, ``_weight`` added.
+        ``_weight`` is null for rows whose country×year is absent from
+        the population benchmarks.
+    """
+    # ── 1. Harmonise strata ─────────────────────────────────────────────────
+    df = _harmonize_strata(df)
+    df = df.with_columns(pl.col("year").cast(pl.Int64))
+
+    # ── 2. Load population benchmarks ───────────────────────────────────────
+    _data = Path(__file__).parent / "_data"
+    pop = pl.read_csv(_data / "pop_age_sex.csv")
+    # columns: country, year, age_group, pop_male, pop_female, pop_total
+
+    # ── 3. Build target: country × year × age_group × sex proportions ───────
+    # Total adult population per country (summed across all available years)
+    pop_total_by_country = (
+        pop.group_by("country")
+        .agg(pl.col("pop_total").sum().alias("_pop_country"))
+    )
+
+    # Long-format target: each row = (country, year, age_group, sex, pop)
+    target = pl.concat([
+        pop.select([
+            "country", "year", "age_group",
+            pl.col("pop_male").alias("_pop"),
+            pl.lit("Male").alias("_stratum_sex"),
+        ]),
+        pop.select([
+            "country", "year", "age_group",
+            pl.col("pop_female").alias("_pop"),
+            pl.lit("Female").alias("_stratum_sex"),
+        ]),
+    ])
+    # Attach total country pop and compute cell proportion
+    target = target.join(pop_total_by_country, on="country", how="left")
+    target = target.with_columns(
+        (pl.col("_pop") / pl.col("_pop_country")).alias("_target_prop")
+    ).rename({"age_group": "_stratum_age"})
+
+    # ── 4. Aggregate sample to cells ────────────────────────────────────────
+    cell_key = ["country", "year", "_stratum_sex", "_stratum_age"]
+    cells = df.group_by(cell_key).len().collect()
+
+    # Total sample n per country
+    n_country = cells.group_by("country").agg(
+        pl.col("len").sum().alias("_n_country")
+    )
+    cells = cells.join(n_country, on="country", how="left")
+    cells = cells.with_columns(
+        (pl.col("len") / pl.col("_n_country")).alias("_sample_prop")
+    )
+
+    # ── 5. Join with targets and compute weights ─────────────────────────────
+    cells = cells.join(
+        target.select(["country", "year", "_stratum_sex", "_stratum_age", "_target_prop"]),
+        on=["country", "year", "_stratum_sex", "_stratum_age"],
+        how="left",
+    )
+    cells = cells.with_columns(
+        pl.when(pl.col("_target_prop").is_not_null())
+        .then(pl.col("_target_prop") / pl.col("_sample_prop"))
+        .otherwise(pl.lit(None, dtype=pl.Float64))
+        .alias("_weight")
+    )
+
+    # ── 6. Normalise within country (sum of non-null weights → n) ────────────
+    norm = (
+        cells.filter(pl.col("_weight").is_not_null())
+        .group_by("country")
+        .agg(
+            pl.col("len").sum().alias("_nc"),
+            pl.col("_weight").sum().alias("_wc"),
+        )
+    )
+    cells = cells.join(norm, on="country", how="left")
+    cells = cells.with_columns(
+        pl.when(pl.col("_weight").is_not_null())
+        .then(pl.col("_weight") * pl.col("_nc") / pl.col("_wc"))
+        .otherwise(pl.col("_weight"))
+        .alias("_weight")
+    ).drop(["_nc", "_wc"])
+
+    # ── 7. Clip weights ─────────────────────────────────────────────────────
+    cells = cells.with_columns(
+        pl.when(pl.col("_weight").is_not_null())
+        .then(pl.col("_weight").clip(0.05, 20.0))
+        .otherwise(pl.col("_weight"))
+        .alias("_weight")
+    )
+
+    # ── 8. Join weights back to individual rows ──────────────────────────────
+    cell_weights = cells.select(cell_key + ["_weight"]).lazy()
+    df = df.join(cell_weights, on=cell_key, how="left")
 
     return df

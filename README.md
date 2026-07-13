@@ -52,9 +52,9 @@ processing of the full dataset.
   Disorder, Addiction, ADHD, ASD.
 
 ### Population stratification weighting
-- **`post_stratification_weighting(df)`** — adds within‑country
-  post‑stratification weights (``_weight`` column in [0.05, 20]) via iterative
-  proportional fitting (raking).  Three margins are adjusted independently per
+- **`iterative_proportional_fitting(df)`** — adds within‑country
+  post‑stratification weights (``_weight`` column in [0.05, 20]) via Iterative
+  Proportional Fitting (IPF).  Three margins are adjusted independently per
   country:
   - **year** — population share across 2020–2026
   - **age × sex** — adult age‑sex pyramid (8 groups × Female/Male)
@@ -73,6 +73,10 @@ processing of the full dataset.
   available).  Taiwan is not covered by the World Bank indicator (rural‑urban
   margin skipped).
 
+- **`simple_stratification(df)`** — single-step post‑stratification by
+  year, age group, and sex only (no rural‑urban margin, no iteration).
+  Countries or years without population benchmarks receive ``_weight = null``.
+
 ## Installation
 
 ```console
@@ -86,13 +90,13 @@ Requires Python ≥ 3.10 and `polars ≥ 1.0`.
 ```python
 from globalmind import (
     read_table, clean_data,
-    post_stratification_weighting,
+    iterative_proportional_fitting,
     identify_symptoms, mapping_to_DSM5,
 )
 
 df = read_table("gmp_data.csv")
 df = clean_data(df)
-df = post_stratification_weighting(df)
+df = iterative_proportional_fitting(df)
 df = identify_symptoms(df)
 df = mapping_to_DSM5(df)
 df.collect()  # all operations are lazy
