@@ -360,7 +360,6 @@ def post_stratification_weighting(
         )
         current = cells.group_by(["country", "year"]).agg(
             pl.col("_weight").sum().alias("_w"),
-            pl.col("len").sum().alias("_n"),
         )
         current = current.join(pw_country, on="country", how="left")
         current = current.join(m1, on=["country", "year"], how="left")
@@ -380,14 +379,17 @@ def post_stratification_weighting(
 
         # ---- Margin 2: country × year × age × sex ---------------------------
         valid2 = cells.filter(pl.col("_stratum_sex") != _NULL_SENTINEL)
-        pw_cy = cells.group_by(["country", "year"]).agg(
-            pl.col("_weight").sum().alias("_pcy")
+        # Only Male+Female have population benchmarks (_t2 sums to 1 over them).
+        # Include Other in "current" so it gets adj=1, but exclude it from _pcy.
+        pw_cy = (
+            cells.filter(pl.col("_stratum_sex").is_in(["Male", "Female"]))
+            .group_by(["country", "year"])
+            .agg(pl.col("_weight").sum().alias("_pcy"))
         )
         current = valid2.group_by(
             ["country", "year", "_stratum_sex", "_stratum_age"]
         ).agg(
             pl.col("_weight").sum().alias("_w"),
-            pl.col("len").sum().alias("_n"),
         )
         current = current.join(pw_cy, on=["country", "year"], how="left")
         current = current.join(
@@ -412,14 +414,16 @@ def post_stratification_weighting(
 
         # ---- Margin 3: country × year × rural_urban -------------------------
         valid3 = cells.filter(pl.col("_stratum_ru") != _NULL_SENTINEL)
-        pw_cy = cells.group_by(["country", "year"]).agg(
-            pl.col("_weight").sum().alias("_pcy")
+        # Only Urban+Rural have population benchmarks (_t3 sums to 1 over them).
+        pw_cy = (
+            cells.filter(pl.col("_stratum_ru").is_in(["Urban", "Rural"]))
+            .group_by(["country", "year"])
+            .agg(pl.col("_weight").sum().alias("_pcy"))
         )
         current = valid3.group_by(
             ["country", "year", "_stratum_ru"]
         ).agg(
             pl.col("_weight").sum().alias("_w"),
-            pl.col("len").sum().alias("_n"),
         )
         current = current.join(pw_cy, on=["country", "year"], how="left")
         current = current.join(
