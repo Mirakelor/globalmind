@@ -7,7 +7,7 @@ relative to the general adult population.
 
 This module provides two approaches:
 
-1. **Iterative Proportional Fitting (IPF)** — rakes on three margins
+1. **Iterative Proportional Fitting (IPF)** — fits three margins
    (year, age×sex, rural_urban) simultaneously via :func:`iterative_proportional_fitting`.
 2. **Simple post-stratification** — single-step weighting by year,
    age_group, and sex via :func:`simple_stratification`.  Countries
@@ -28,7 +28,7 @@ and the IPF iteration itself.
   Bank.  We use the latest observed value (2024).
 * Taiwan is not covered by the World Bank urbanisation indicator.
   Its rural‑urban margin is skipped — only year and age×sex are
-  raked.
+  fitted.
 
 Usage::
 
@@ -81,7 +81,7 @@ _AGE_MAP: dict[str, str] = {
 # non‑binary categories into a single "Other" label.
 #
 # "N/A" and "Prefer not to say" are nulled out; those rows are excluded
-# from the sex margin during raking but still receive weights from the
+# from the sex margin during IPF but still receive weights from the
 # other two margins.
 _SEX_MAP: dict[str, str] = {
     "Female":                  "Female",
@@ -97,7 +97,7 @@ _SEX_MAP: dict[str, str] = {
 # The raw column has four fine‑grained categories plus Hindi translations
 # that appeared in 2026.  We collapse to a binary Urban / Rural split so
 # that the single population benchmark — national urbanisation rate — can
-# be used for raking.
+# be used for IPF.
 #
 # "N/A" (2020–2021, before the question was introduced) and
 # "Prefer not to say" are nulled out.
@@ -112,7 +112,7 @@ _RURAL_URBAN_MAP: dict[str, str] = {
     "एक ग्रामीण इलाका या दूर की जगह":         "Rural",
 }
 
-# Values to be turned into null (not used in raking for that margin).
+# Values to be turned into null (not used in IPF for that margin).
 _SEX_NULLS: frozenset[str] = frozenset({"N/A", "Prefer not to say"})
 _RU_NULLS:  frozenset[str] = frozenset({"N/A", "Prefer not to say"})
 
@@ -208,7 +208,7 @@ def _harmonize_strata(df: pl.LazyFrame) -> pl.LazyFrame:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# Iterative Proportional Fitting (within-country raking on three margins)
+# Iterative Proportional Fitting (within-country IPF on three margins)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def iterative_proportional_fitting(
@@ -504,9 +504,9 @@ def simple_stratification(df: pl.LazyFrame) -> pl.LazyFrame:
     where *P* is the population benchmark and *n* the sample count.
 
     **Countries or years not found in the population benchmarks receive
-    ``_weight = null``.**  Rows with ``_stratum_sex = null`` (e.g.
-    "Other", "Prefer not to say") also receive null because the
-    population benchmarks only cover Male and Female.
+    ``_weight = null``.**  Rows whose ``_stratum_sex`` is ``"Other"``
+    or null also receive null because the population benchmarks only
+    cover Male and Female.
 
     Parameters
     ----------
@@ -557,11 +557,14 @@ def simple_stratification(df: pl.LazyFrame) -> pl.LazyFrame:
         (pl.col("_pop") / pl.col("_pop_country")).alias("_target_prop")
     ).rename({"age_group": "_stratum_age"})
 
-    # ── 4. Aggregate sample to cells ────────────────────────────────────────
+    # ── 4. Aggregate sample to cells (Male & Female only) ──────────────────
     cell_key = ["country", "year", "_stratum_sex", "_stratum_age"]
-    cells = df.group_by(cell_key).len().collect()
+    cells = (
+        df.group_by(cell_key).len().collect()
+        .filter(pl.col("_stratum_sex").is_in(["Male", "Female"]))
+    )
 
-    # Total sample n per country
+    # Total sample n per country (Male+Female only)
     n_country = cells.group_by("country").agg(
         pl.col("len").sum().alias("_n_country")
     )
@@ -583,7 +586,7 @@ def simple_stratification(df: pl.LazyFrame) -> pl.LazyFrame:
         .alias("_weight")
     )
 
-    # ── 6. Normalise within country (sum of non-null weights → n) ────────────
+    # ── 6. Normalise within country (sum of valid weights → n) ───────────────
     norm = (
         cells.filter(pl.col("_weight").is_not_null())
         .group_by("country")
@@ -594,7 +597,7 @@ def simple_stratification(df: pl.LazyFrame) -> pl.LazyFrame:
     )
     cells = cells.join(norm, on="country", how="left")
     cells = cells.with_columns(
-        pl.when(pl.col("_weight").is_not_null())
+        pl.when(pl.col("_wc").is_not_null())
         .then(pl.col("_weight") * pl.col("_nc") / pl.col("_wc"))
         .otherwise(pl.col("_weight"))
         .alias("_weight")
@@ -608,7 +611,7 @@ def simple_stratification(df: pl.LazyFrame) -> pl.LazyFrame:
         .alias("_weight")
     )
 
-    # ── 8. Join weights back to individual rows ──────────────────────────────
+    # ── 8. Join weights back (Male+Female get weights, Others get null) ──────
     cell_weights = cells.select(cell_key + ["_weight"]).lazy()
     df = df.join(cell_weights, on=cell_key, how="left")
 

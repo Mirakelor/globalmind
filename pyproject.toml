@@ -13,7 +13,7 @@ keywords = [
   "GMP", "Global-Mind-Project", "MHQ", "Mind-Health-Quotient",
   "mental-health", "wellbeing", "DSM-5", "psychometrics",
   "questionnaire", "survey-analysis", "public-health",
-  "polars", "data-science", "post-stratification", "raking",
+  "polars", "data-science", "post-stratification", "ipf",
 ]
 authors = [
   { name = "Nianyu Su", email = "mirakelor@outlook.com" },
