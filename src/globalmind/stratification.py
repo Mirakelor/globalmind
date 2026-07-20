@@ -54,6 +54,11 @@ _COUNTRY_NAME_MAP: dict[str, str] = {
     # alongside 229K rows already labelled "India".  Merging them
     # ensures a single benchmark lookup and correct cell aggregation.
     "भारत (इंडिया)": "India",
+    # read_table converts "|" → "," in single-select columns like country
+    # (data.py:_SINGLE_SELECT_PIPE_COLS), so "Korea| South" becomes
+    # "Korea, South" in the dataset.  The population benchmark
+    # (pop_age_sex.csv) retains the pipe form.  Map back so the two match.
+    "Korea, South": "Korea| South",
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
